@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  PROJECT_ONE_LINE_DESCRIPTION
+  Federated Learning 기반 경량 CNN으로 Brain MRI 4-class를 분류하는 Jetson/Edge AI 실험 프로젝트
 </p>
 
 <p align="center">
@@ -22,10 +22,6 @@
 - [주요 특징](#-주요-특징)
 - [프로젝트 구조](#-프로젝트-구조)
 - [사용 기술](#-사용-기술-tech-stack--techniques)
-- [코드에서 사용한 주요 기술](#-코드에서-사용한-주요-기술)
-- [모델 구조](#-모델-구조)
-- [데이터셋 및 전처리](#-데이터셋-및-전처리)
-- [Federated Learning 동작 방식](#-federated-learning-동작-방식)
 - [실행 방법](#-실행-방법)
 - [결과](#-결과)
 
@@ -107,309 +103,61 @@ REPO_NAME/
   - 시드 고정 및 재현성(Reproducibility) 확보
 - **tqdm**
   - 학습/테스트 진행 상황을 시각적으로 표시
+---
 
-### Federated Learning & Training Logic
-- **FedAvg(Federated Averaging)**
-  - 클라이언트별 학습 후 `state_dict`를 서버에서 수신
-  - 파라미터를 단순 평균하여 새로운 글로벌 모델 생성
-- **Non-IID 설정**
-  - Client 1 / Client 2 간 클래스 분포를 인위적으로 다르게 구성
-  - 의료 데이터 환경에서 자주 발생하는 **데이터 불균형 & 기관 간 분포 차이**를 실험적으로 반영
-- **하이퍼파라미터 튜닝**
-  - `global_round`, `local_epochs`, `batch_size`, `lr` 등을 조정하며 성능/시간/자원 사용량 사이의 트레이드오프 확인
-  - 목표 정확도(`target_accuracy`)를 기준으로 한 조기 종료(Early stopping) 시나리오도 고려
+### 1. 모델링 & 아키텍처
 
-### 시스템 & 엔지니어링
-- **TCP Socket 기반 통신**
-  - `socket`, `struct`, `pickle` 등을 사용해 서버–클라이언트 간 모델 파라미터 송수신
-  - 단일 머신 로컬(loopback) 뿐 아니라, IP/Port 설정 변경만으로 LAN 환경으로 확장 가능
-- **디바이스 대응**
-  - Apple Silicon 환경에서는 **MPS(Metal Performance Shaders)** 사용
-  - NVIDIA / Jetson 환경에서는 **CUDA** 사용
-  - GPU/MPS가 없는 경우 자동으로 **CPU**로 폴백
-- **재현성 & 안정성**
-  - `random`, `numpy`, `torch`, `torch.cuda` 시드 고정
-  - `torch.backends.cudnn.deterministic = True` 설정으로 일관된 결과 재현
+이 프로젝트에서는 Jetson/Edge 환경에서도 동작 가능한 **경량 CNN(Network1)** 을 직접 설계하여 사용했습니다.  
+기본 아이디어는 *연산량과 파라미터 수를 줄이면서도* 192×192 해상도의 Brain MRI 이미지를 4개 클래스로 안정적으로 분류하는 것입니다.
 
+- **Depthwise Separable Convolution 기반 경량 구조**
+  - 일반적인 Conv2d 대신, `groups=in_channels`인 **Depthwise Conv**와 `1×1 Pointwise Conv`를 조합하여 사용했습니다.
+  - 이런 구조는 MobileNet 계열에서 사용하는 방식으로,  
+    채널별로 먼저 공간 연산(DW)을 하고, 이후 채널 방향으로만 합치는 연산(PW)을 수행해 **파라미터와 FLOPs를 크게 줄이는 효과**가 있습니다.
+  - 채널 수는 `3 → 20 → 30 → 45 → 67 → 100`으로 점진적으로 증가시켜,  
+    초반에는 연산량을 아끼고 뒤로 갈수록 표현력을 확보하도록 설계했습니다.
 
-## 🧩 코드에서 사용한 주요 기술
+- **ReLU6 활성함수**
+  - 모든 블록에 `ReLU6`를 사용했습니다.  
+  - ReLU6는 출력 상한을 6으로 제한하는 ReLU 변형으로, 모바일/경량 환경에서 양자화나 고정소수점 연산에 안정적인 활성함수로 자주 사용됩니다.
 
-### 1. 경량 CNN 모델(Network1) 설계
+- **해상도 감소 & 특징 추출**
+  - 중간마다 `MaxPool2d`를 배치해 공간 해상도를 단계적으로 줄였습니다.
+  - 이를 통해 연산량을 줄이는 동시에, 점점 더 추상적인 high-level feature를 학습하도록 유도했습니다.
 
-- `nn.Module` 기반 **커스텀 경량 CNN** 구현
-- 구조 특징:
-  - 입력: `[B, 3, 192, 192]`
-  - 출력: `[B, 4]` (Brain MRI 4-class 분류)
-  - **Depthwise Separable Convolution**
-    - `groups=in_channels`인 `Conv2d`(DW) + `1x1 Conv2d`(PW) 조합  
-    - 채널 수: `3→20→30→45→67→100` 단계적으로 증가
-  - `MaxPool2d`로 해상도와 연산량 감소
-  - `ReLU6` 활성화 사용 (모바일/경량 환경에서 자주 쓰이는 활성함수)
-  - 마지막에 `AdaptiveAvgPool2d(1x1)` + `Conv2d(1x1)`  
-    → FC 레이어 없이 **채널 축만 남기는 1×1 Conv classifier**
-- 분류기(`self.classifier`):
-  - `BatchNorm2d(100)` + `Dropout(0.1)` + `Conv2d(100, num_classes, kernel_size=1)`  
-  → 경량 구조 유지하면서도 **정규화 + 규제(regularization)** 반영
+- **Fully-connected 없이 1×1 Conv로 분류**
+  - 마지막에는 `AdaptiveAvgPool2d(1×1)`으로 H×W를 1×1로 줄여 채널 축만 남게 하고,
+  - `Conv2d(100, num_classes, kernel_size=1)`을 적용하여 **완전연결층(FC layer) 없이** 바로 클래스 로짓을 뽑습니다.
+  - 이 구조는 파라미터 수를 최소화하면서도 CNN의 장점을 유지할 수 있어, Edge 디바이스에서 특히 효율적입니다.
 
 ---
 
-### 2. 데이터셋 로딩 & 전처리 파이프라인
+### 2. Federated Learning & 통신 구조
 
-- `.pt` 파일 구조:
-  - `blob = torch.load(pt_path, map_location="cpu", weights_only=False)`
-  - `blob["items"]` 안에 `{ "tensor": 이미지, "label": 라벨 }` 형태의 리스트 저장
-- `CustomDataset` 구현:
-  - `self.images = [item["tensor"] for item in blob["items"]]`
-  - `self.labels = [int(item["label"]) for item in blob["items"]]`
-  - `__getitem__`에서:
-    - `x = self.images[idx].float() / 255.0` 로 0~1 스케일링
-    - 필요 시 `transform(x)` 적용
-- 전처리(Transform):
-  - **Train (client1)**:
-    - `Resize((IMG_SIZE, IMG_SIZE))`
-    - `RandomHorizontalFlip(0.5)` (간단한 데이터 증강)
-    - `ToDtype(torch.float32, scale=True)`
-    - `Normalize(mean, std)` (ImageNet 통계 기반)
-  - **Test (server)**:
-    - 동일한 Resize & Normalize, 증강 없이 평가용으로만 사용
-- `DataLoader`:
-  - 클라이언트: `batch_size=32`, `shuffle=True`
-  - 서버(테스트): `batch_size=64`, `shuffle=False`
+이 프로젝트의 핵심은 **Federated Learning(FedAvg)** 을 실제 동작 가능한 형태로 구현했다는 점입니다.  
+데이터는 각 클라이언트에만 존재하고, 서버는 오직 **모델 파라미터(state_dict)** 만 주고받습니다.
 
----
+- **FedAvg 기반 글로벌 모델 업데이트**
+  - 각 클라이언트는 자신의 로컬 데이터(`client1.pt`, `client2.pt`)로 몇 epoch 학습한 후,
+    `model.state_dict()`를 서버로 전송합니다.
+  - 서버는 두 클라이언트의 `state_dict`를 받아 같은 key끼리 평균을 내는 방식으로 **FedAvg** 를 직접 구현합니다.
+  - 이렇게 생성된 평균 파라미터가 새로운 **글로벌 모델**이 되어 다음 라운드에 다시 브로드캐스트됩니다.
 
-### 3. 학습 로직 & 최적화 기법
+- **TCP Socket 기반 서버–클라이언트 통신**
+  - Python의 `socket` 모듈을 사용해 **TCP 통신**을 구현했습니다.
+  - 모델 파라미터는 `pickle`로 직렬화하고, `struct`를 이용해 **전송할 바이트 길이를 먼저 4바이트로 보내고, 그 다음 payload를 전송**하는 방식으로 구현했습니다.
+    - 수신 측에서는 먼저 길이(4바이트)를 읽고, 그 길이만큼 정확히 다시 읽어 전체 payload를 복원합니다.
+  - 이런 형태는 실제 네트워크 환경에서도 자주 쓰이는 **길이 프레임 기반 프로토콜 패턴**을 따릅니다.
 
-#### (1) Mixed Precision Training (AMP) – 클라이언트
-
-- `torch.amp.GradScaler('cuda')` 및 `torch.amp.autocast('cuda', enabled=use_amp)` 사용
-- `device == "cuda"` 인 경우에만 **AMP 활성화**
-  - Forward & Loss 계산을 autocast 영역에서 수행
-  - `scaler.scale(loss).backward()`, `scaler.step(optimizer)`, `scaler.update()`로 학습
-- CUDA가 아닐 경우에는 **일반 FP32 학습**으로 자동 폴백
-
-#### (2) Optimizer & Loss
-
-- Optimizer:
-  - `optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)`
-  - weight decay로 **L2 규제**를 적용해 과적합 완화
-- Loss:
-  - `CrossEntropyLoss(weight=class_weights)`
-  - `class_weights = [3.1, 4.0, 2.5, 3.3]`  
-    → **클래스 불균형(class imbalance)** 보정을 위한 클래스별 가중치 적용
-
-#### (3) 재현성(Reproducibility)
-
-- 고정 시드:
-  - `SEED = 42`
-  - `random`, `numpy`, `torch`, `torch.cuda` 각각 seed 설정
-- `torch.backends.cudnn.deterministic = True`
-- `torch.backends.cudnn.benchmark = False`  
-  → 연산 최적화 대신 **결과 일관성**을 우선
-
----
-
-### 4. 디바이스 선택 & Half Precision Inference
-
-- 클라이언트(main):
-  - `mps` → `cuda` → `cpu` 순으로 사용 가능 디바이스 자동 선택
-- 서버:
-  - 시작 시 device를 전역으로 설정 (`mps` / `cuda` / `cpu`)
-- Inference 최적화:
-  - 서버 측 `measure_accuracy`:
-    - `model = Network1().to(device); model.load_state_dict(global_model)`
-    - `model.half()` → 파라미터를 **FP16**으로 변환
-    - 입력도 `inputs.to(device).half()`로 FP16 변환
-  - 추론 시간을 측정하여 **예측 소요 시간(inference_time)** 로그 출력
-
----
-
-### 5. Federated Learning 통신 구조 (TCP Socket)
-
-#### (1) 클라이언트(client1.py)
-
-- 서버와 TCP 연결:
-  - `client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)`
-  - `client.connect((host_ip, port))`
-- 서버로부터 글로벌 모델 수신:
-  - 먼저 4바이트 길이 정보 수신: `data_size = struct.unpack('>I', client.recv(4))[0]`
-  - 그 길이만큼 payload 수신 후 `pickle.loads`로 역직렬화
-  - `OrderedDict`로 감싸서 `model.load_state_dict(weight, strict=True)`
-- 로컬 학습:
-  - `train(model, criterion, optimizer, train_loader)` 호출
-- 로컬 모델 전송:
-  - `model.state_dict().items()`를 dict로 감싸 `pickle.dumps`
-  - `struct.pack('>I', len(model_data))`로 길이 먼저 전송 후, 본문 전송
-- `select.select`로 서버 종료 신호 감지 후 "Federated Learning finished" 출력
-
-#### (2) 서버(server.py)
-
-- 멀티스레드 서버:
-  - `server.listen()` 후, 두 개의 클라이언트 연결 수락
-  - `handle_client`를 스레드로 실행 (connection1, connection2)
-- 초기 브로드캐스트:
-  - 각 클라이언트에 초기 `model.state_dict()` 전송
-- 라운드별 처리:
-  - 각 스레드에서 클라이언트로부터 로컬 모델 수신 → `model_list`에 저장
-  - 두 모델이 모두 도착하면:
-    - `average_models(model_list)`로 **FedAvg** 수행
-    - `measure_accuracy`로 테스트셋 정확도 측정
-    - `current_round` 증가 및 로그 출력
-    - `get_model_size`로 최종 모델 크기(MB 단위) 계산
-- 동기화:
-  - `threading.Semaphore`를 활용해 두 클라이언트 스레드가  
-    **동시에 한 라운드를 마치고 다음 라운드로 넘어가도록** 제어
-- 종료 조건:
-  - `current_round == global_round` 또는  
-    `global_accuracy >= target_accuracy` 만족 시:
-    - 최종 글로벌 모델을 한 번 더 전송 후 커넥션 종료
-
----
-
-### 6. 실험 지표 계산 및 로깅
-
-- 학습 시간 측정:
-  - `training_start = time.time()` ~ `training_end = time.time()`  
-  - 시/분/초 단위로 포맷팅해서 **총 학습 소요 시간** 출력
-- 모델 크기 측정:
-  - `pickle.dumps(dict(global_model.state_dict().items()))` 길이를  
-    `MB` 단위로 환산하여 출력
-- 최종 결과 로그:
-  - `학습 성능 : {global_accuracy} %`
-  - `학습 소요 시간: H 시간 M 분 S 초`
-  - `최종 모델 크기: X.XXXX MB`
-  - `예측 소요 시간 : T 초`
-  - `"연합학습 종료"` 메시지로 종료 시점 명확히 표시
-
-
-## 🧠 모델 구조
-
-연합학습에 사용되는 Network1은 Jetson 환경을 고려한 경량 CNN입니다.
-
-- 입력: [B, 3, 192, 192]
-
-- 출력: [B, 4] (4-class)
-
-- 구성:
-
-  - Conv2d → BatchNorm2d → ReLU
-  - Depthwise Separable Conv (DW + PW) 로 파라미터 감소
-  - MaxPool2d로 해상도/연산량 감소
-  - 마지막에 AdaptiveAvgPool2d(1×1) + 1×1 Conv classifier
-
-```python
-class Network1(nn.Module):
-    def __init__(self, num_classes=4):
-        super(Network1, self).__init__()
-        self.features = nn.Sequential(
-            nn.Conv2d(3, 20, 3, stride=2, padding=1, bias=False),
-            nn.BatchNorm2d(20),
-            nn.ReLU6(inplace=True),
-
-            nn.Conv2d(20, 20, 3, padding=1, groups=20, bias=False),
-            nn.BatchNorm2d(20),
-            nn.ReLU6(inplace=True),
-            nn.Conv2d(20, 30, 1, bias=False),
-            nn.BatchNorm2d(30),
-            nn.ReLU6(inplace=True),
-            nn.MaxPool2d(2),
-
-            nn.Conv2d(30, 30, 3, padding=1, groups=30, bias=False),
-            nn.BatchNorm2d(30),
-            nn.ReLU6(inplace=True),
-            nn.Conv2d(30, 45, 1, bias=False),
-            nn.BatchNorm2d(45),
-            nn.ReLU6(inplace=True),
-            nn.MaxPool2d(2),
-
-            nn.Conv2d(45, 45, 3, padding=1, groups=45, bias=False),
-            nn.BatchNorm2d(45),
-            nn.ReLU6(inplace=True),
-            nn.Conv2d(45, 67, 1, bias=False),
-            nn.BatchNorm2d(67),
-            nn.ReLU6(inplace=True),
-            nn.MaxPool2d(2),
-
-            nn.Conv2d(67, 67, 3, padding=1, groups=67, bias=False),
-            nn.BatchNorm2d(67),
-            nn.ReLU6(inplace=True),
-            nn.Conv2d(67, 100, 1, bias=False),
-            nn.BatchNorm2d(100),
-            nn.ReLU6(inplace=True),
-
-            nn.AdaptiveAvgPool2d(1)
-        )
-        self.classifier = nn.Sequential(
-            nn.BatchNorm2d(100),
-            nn.Dropout(0.1),
-            nn.Conv2d(100, num_classes, kernel_size=1)
-        )
-
-    def forward(self, x):
-        x = self.features(x)
-        x = self.classifier(x)
-        x = x.view(x.size(0), -1)
-        return x
-        return x.view(x.size(0), -1)
-```
-
-
-## 🧬 데이터셋 및 전처리
-데이터 포맷
-
-.pt 파일 내부:
-
-blob = torch.load("dataset/client1.pt", map_location="cpu")
-items = blob["items"]
-
-sample = items[0]
-image = sample["tensor"]       # [C, H, W], uint8
-label = int(sample["label"])   # 0~3
-
-클래스 라벨
-
-Non-IID 분포
-```
-Label	        Client 1	     Client 2
-0 Glioma	    422개 (14.8%)	 899개 (31.5%)
-1 Meningioma	1339개 (46.9%)	 0개 (0%)
-2 Notumor	    489개 (17.1%)	 1106개 (38.7%)
-3 Pituitary     606개 (21.2%)	 851개 (29.8%)
-```
-```python
-import torch
-import torchvision.transforms.v2 as v2
-
-IMG_SIZE = 192
-
-train_transform = v2.Compose([
-    v2.Resize((IMG_SIZE, IMG_SIZE)),
-    v2.RandomHorizontalFlip(0.5),
-    v2.ToDtype(torch.float32, scale=True),
-    v2.Normalize(mean=[0.485, 0.456, 0.406],
-                 std=[0.229, 0.224, 0.225]),
-])
-
-test_transform = v2.Compose([
-    v2.Resize((IMG_SIZE, IMG_SIZE)),
-    v2.ToDtype(torch.float32, scale=True),
-    v2.Normalize(mean=[0.485, 0.456, 0.406],
-                 std=[0.229, 0.224, 0.225]),
-])
-```
-## 🔄 Federated Learning 동작 방식
-
-TCP Socket 기반 서버–클라이언트 구조를 사용한다.
-
-1라운드(Round) 흐름
-
-서버 → 각 클라이언트로 글로벌 모델 파라미터 전송
-
-클라이언트는 로컬 데이터셋(client1.pt / client2.pt)으로 local_epochs 만큼 학습
-
-각 클라이언트는 업데이트된 모델 파라미터(state_dict) 를 서버로 전송
-
-서버는 모든 클라이언트의 파라미터를 평균(FedAvg) 하여 새로운 글로벌 모델을 계산
+- **2개 클라이언트 스레드 & 동기화**
+  - 서버는 `threading.Thread`를 활용해 **클라이언트별로 하나의 스레드**를 할당합니다.
+  - 각 스레드는:
+    1. 글로벌 모델 전송  
+    2. 로컬 모델 수신  
+    3. 서버의 FedAvg 결과를 다시 전송  
+    이 과정을 라운드마다 반복합니다.
+  - `threading.Semaphore`를 이용해, **두 클라이언트의 모델이 모두 도착한 다음에만** FedAvg를 수행하도록 동기화하여,
+    라운드별로 일관된 업데이트가 이루어지도록 했습니다.
 ```
           (1) Broadcast Weights
          ┌─────────────────────┐
@@ -423,6 +171,95 @@ Server ──┤                Client 1 (local train on client1.pt)
          └─────────────────────┘
 ```
 
+---
+
+### 3. 데이터셋 & 전처리
+
+Federated Learning의 현실적인 시나리오를 만들기 위해 **Non-IID 분포의 Brain MRI 데이터셋**을 사용하고,  
+이를 `.pt` 포맷으로 저장한 뒤 커스텀 `Dataset` 클래스로 로딩하는 방식을 채택했습니다.
+
+- **.pt 포맷 커스텀 Dataset**
+  - `torch.load(pt_path)`로 불러오는 `.pt` 파일 내부에는 `blob["items"]` 리스트가 있고,
+    각 요소는 `{"tensor": 이미지 텐서, "label": 라벨 정수}` 형태의 딕셔너리로 구성되어 있습니다.
+  - `CustomDataset`에서는 이 리스트를 그대로 `self.images`, `self.labels`로 나눠 담고,
+    `__getitem__`에서 `x.float() / 255.0`으로 0~1 스케일링 후, 필요 시 `transform`을 적용합니다.
+  - 이 방식은 **PyTorch Dataset 인터페이스를 그대로 사용하면서도, 미리 전처리된 텐서 데이터를 손쉽게 재사용**할 수 있게 해 줍니다.
+
+- **클라이언트별 Non-IID 분포**
+  - Client1과 Client2는 클래스 분포가 크게 다르게 설계되어 있습니다.
+    - 예: Client2에는 Meningioma(라벨 1)가 0개인 반면, Client1에는 해당 라벨이 다수 존재
+  - 이를 통해 “특정 병원에는 특정 병변이 거의 없다” 같은 **현실적인 의료 데이터 편향 상황**을 모사했습니다.
+  
+Non-IID 분포
+```
+Label	        Client 1	     Client 2
+0 Glioma	    422개 (14.8%)	 899개 (31.5%)
+1 Meningioma	1339개 (46.9%)	 0개 (0%)
+2 Notumor	    489개 (17.1%)	 1106개 (38.7%)
+3 Pituitary     606개 (21.2%)	 851개 (29.8%)
+```
+
+- **전처리 & 간단한 데이터 증강**
+  - `torchvision.transforms.v2`를 이용하여 다음과 같은 파이프라인을 구성했습니다.
+    - `Resize((IMG_SIZE, IMG_SIZE))` : 모든 이미지를 192×192로 통일
+    - `RandomHorizontalFlip(0.5)` : 간단한 좌우 반전 증강으로 데이터 다양성 확보
+    - `ToDtype(torch.float32, scale=True)` : float32 변환 및 0~1 스케일링
+    - `Normalize(mean, std)` : ImageNet 통계 기반 정규화
+  - 서버의 테스트셋은 **동일한 Resize/Normalize**를 사용하되, 증강은 제외하고 평가에만 사용합니다.
+
+- **DataLoader 설정**
+  - 클라이언트: `batch_size=32`, `shuffle=True`로 설정하여 학습용 배치 구성
+  - 서버(테스트): `batch_size=64`, `shuffle=False`로 전 데이터에 대해 평가
+
+---
+
+### 4. 학습/추론 최적화 & 재현성
+
+단순히 학습이 돌아가는 수준을 넘어서, **Edge 환경을 고려한 최적화와 재현성**을 함께 챙겼습니다.
+
+- **Mixed Precision Training (AMP) – 클라이언트**
+  - CUDA 디바이스에서만 `torch.amp.autocast('cuda', enabled=use_amp)`와  
+    `torch.amp.GradScaler('cuda')`를 사용해 **Mixed Precision 학습**을 수행합니다.
+  - Forward/Backward를 FP16/FP32 혼합으로 처리함으로써:
+    - 연산 속도 향상
+    - GPU 메모리 사용량 감소
+  - CUDA가 아닌 경우에는 AMP를 비활성화하고 **일반 FP32 학습**으로 안전하게 폴백합니다.
+
+- **FP16 Inference – 서버**
+  - 서버에서 글로벌 모델 성능을 측정할 때:
+    - `model.half()`로 모델 파라미터를 FP16으로 변환하고,
+    - 입력도 `inputs.to(device).half()`로 맞춰 **Half Precision 추론**을 수행합니다.
+  - 이를 통해 테스트셋 전체에 대한 **추론 시간을 단축**하고,  
+    실험적으로 Edge/Jetson 환경에서의 inference 최적화 전략을 반영합니다.
+
+- **Optimizer, Loss, 정규화**
+  - Optimizer: `Adam(lr=0.001, weight_decay=1e-4)`
+    - `weight_decay`로 L2 규제를 걸어 과적합을 완화합니다.
+  - 손실함수: `CrossEntropyLoss(weight=class_weights)`
+    - `class_weights = [3.1, 4.0, 2.5, 3.3]`와 같이 클래스별 다른 가중치를 부여해,
+      클래스 불균형 환경에서 **소수 클래스의 영향력을 보정**했습니다.
+
+- **디바이스 선택 & 폴백 전략**
+  - 실행 시점에:
+    - `torch.backends.mps.is_available()` → `cuda.is_available()` → 그 외에는 `cpu`
+  - 순서대로 체크해 디바이스를 자동으로 선택하여,
+    - Apple Silicon(MPS),
+    - NVIDIA GPU(CUDA),
+    - 일반 CPU 환경
+    모두에서 코드 수정 없이 동작하도록 했습니다.
+
+- **재현성을 위한 시드 및 설정**
+  - `SEED = 42`로 고정하고,
+    - `random.seed(SEED)`
+    - `np.random.seed(SEED)`
+    - `torch.manual_seed(SEED)`
+    - `torch.cuda.manual_seed_all(SEED)`
+    를 설정했습니다.
+  - 또한:
+    - `torch.backends.cudnn.deterministic = True`
+    - `torch.backends.cudnn.benchmark = False`
+    로 설정해, **속도 최적화보다 결과 일관성을 우선**하도록 구성했습니다.
+  - 이를 통해 같은 설정에서 다시 실행했을 때, **가급적 동일한 학습 경향과 성능이 재현**되도록 했습니다.
 
 ## 🏃 실행 방법
 ### 1) 레포지토리 클론 & 환경 세팅
