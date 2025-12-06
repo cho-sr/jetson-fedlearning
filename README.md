@@ -1,6 +1,5 @@
-<p align="center">
-<h1>🚀 Jetson Federated Brain MRI Classification</h1>
-</p>
+<h1 align="center">🚀 Jetson Federated Brain MRI Classification</h1>
+
 
 <p align="center">
   Federated Learning 기반 경량 CNN으로 Brain MRI 4-class를 분류하는 Jetson/Edge AI 실험 프로젝트
