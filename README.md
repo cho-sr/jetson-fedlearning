@@ -14,6 +14,9 @@
   <img src="https://img.shields.io/badge/Device-%20%7C%20CUDA%20%7C-green" />
 </p>
 
+<br>
+
+
 ---
 
 ## 📚 Table of Contents
@@ -25,6 +28,7 @@
 - [실행 방법](#-실행-방법)
 - [결과](#-결과)
 
+<br>
 
 ---
 
@@ -44,6 +48,7 @@
 - Jetson/Edge 디바이스에서도 학습 및 추론이 가능한 **경량 CNN(Network1)** 설계
 - 학습 정확도, 추론 시간, 최종 모델 크기 등을 함께 보고하여 **Edge AI 관점의 효율성 평가**
 
+<br>
 
 ---
 
@@ -72,6 +77,7 @@
   - 최종 **정확도, 학습 소요 시간, 모델 파일 크기, 전체 추론 시간** 등을 기록
   - `tqdm` 기반 진행률 표시로 학습 상태 모니터링
  
+<br>
 
 ## 📁 프로젝트 구조
 
@@ -89,6 +95,8 @@ REPO_NAME/
 │
 └── README.md
 ```
+
+<br>
 
 ## 🛠 사용 기술 (Tech Stack & Techniques)
 
@@ -261,6 +269,8 @@ Label	        Client 1	     Client 2
     로 설정해, **속도 최적화보다 결과 일관성을 우선**하도록 구성했습니다.
   - 이를 통해 같은 설정에서 다시 실행했을 때, **가급적 동일한 학습 경향과 성능이 재현**되도록 했습니다.
 
+<br>
+
 ## 🏃 실행 방법
 ### 1) 레포지토리 클론 & 환경 세팅
 ```
@@ -287,6 +297,8 @@ python server.py
   python client2.py
 
 client1.py, client2.py 내 host_ip, port가 서버와 동일해야 함.
+
+<br>
 
 ## 📊 결과
 
