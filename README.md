@@ -38,13 +38,11 @@ Glioma·Meningioma 중심 Non-IID 데이터 포함
 
 Notumor·Pituitary 중심 Non-IID 데이터 포함
 
-로컬 학습 후 반복적으로 서버와 통신
-
-Jetson 기반 시스템 구성도는 PDF page 5 참고.
+로컬 학습 후 서버와 반복적 통신
 
 🧠 데이터셋 구성
 
-제공된 .pt 파일 기반 MRI 4-class 분류 데이터
+제공된 .pt 파일 기반 MRI 4-class 분류 데이터:
 
 Label	Class
 0	Glioma
@@ -76,13 +74,13 @@ CNN 기반 초경량 모델
 
 입력: 3 × 192 × 192
 
-Conv → BatchNorm → ReLU 반복 블록
+Conv → BatchNorm → ReLU 블록 반복
 
-AdaptiveAvgPool2d + Linear Layer
+AdaptiveAvgPool2d + Linear
 
-Jetson에서도 학습·추론 가능하도록 파라미터 수 최소화
+Jetson에서도 학습·추론 가능한 경량 구조
 
-🔄 연합학습(FedAvg) 흐름
+🔄 Federated Learning (FedAvg) 흐름
 Client1 ----→
               \
                →—— Server ——→ Global Update → Clients
@@ -91,22 +89,22 @@ Client2 ----→
 
 수행 절차
 
-각 Client에서 로컬 학습 진행
+각 Client에서 로컬 학습 수행
 
-Weight를 Server로 전송
+학습된 weight를 Server로 전송
 
-Server에서 FedAvg로 글로벌 weight 갱신
+Server에서 FedAvg로 글로벌 weight 계산
 
-갱신된 글로벌 모델을 클라이언트로 재배포
+갱신된 모델을 클라이언트에게 재배포
 
-목표 정확도 또는 설정된 global round 도달 시 종료
+목표 정확도 또는 설정된 라운드 종료 시 학습 완료
 
 📊 평가 지표
 항목	설명
 Accuracy	Test set 기반 정확도
-Training Time	Jetson에서의 전체 학습 시간
+Training Time	Jetson에서의 학습 소요 시간
 Model Size	최종 모델 파라미터 크기(MB)
-Inference Time	Jetson에서 1회 추론 시간
+Inference Time	Jetson에서의 1회 추론 시간
 🔧 실행 방법
 1) 서버 실행
 python server.py
@@ -123,7 +121,7 @@ python client2.py
 
 🧪 결과 예시
 
-(※ 실제 실험 결과에 맞게 수정)
+(실제 실험 결과에 맞게 수정하세요)
 
 Global round [4/5] Accuracy: 79.7%
 
@@ -132,3 +130,8 @@ Training Time: 1 min 40 sec
 Model Size: 0.112 MB
 
 Inference Time: 2.24 sec
+
+🏁 마무리
+
+본 프로젝트는 Jetson과 연합학습을 결합하여
+프라이버시 보호 + 분산 학습 + 경량 모델 최적화라는 3가지 목표를 성공적으로 달성하는 것을 목표로 합니다.
