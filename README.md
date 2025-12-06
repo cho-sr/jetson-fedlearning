@@ -1,13 +1,13 @@
-# Jetson Federated Learning for Medical MRI Classification
+🚀 Jetson Federated Learning for Medical MRI Classification
 
 경량 CNN 모델을 이용한 Jetson 기반 연합학습(Federated Learning) 프로젝트입니다.
 두 개의 디바이스(Jetson Orin Nano)가 서로 다른 MRI 데이터를 공유하지 않고,
 서버를 통해 FedAvg 방식으로 모델을 지속적으로 개선하는 시스템을 구축했습니다.
 
-🚀 프로젝트 개요
+📌 프로젝트 개요
 
 본 프로젝트는 여러 병원이 보유한 환자의 MRI 데이터를 서버로 직접 전송하지 않고,
-개별 디바이스에서 학습한 모델만 주고받는 프라이버시 보장 인공지능 시스템을 목표로 합니다.
+개별 디바이스에서 학습한 모델만 공유하는 프라이버시 보장 인공지능 시스템을 목표로 합니다.
 
 🎯 목적
 
@@ -20,47 +20,43 @@ FedAvg 알고리즘을 이용한 글로벌 모델 업데이트
 경량 모델 설계 및 성능 최적화
 
 🧩 시스템 구성
-
-📌 시스템은 다음 3개 요소로 구성됩니다:
-
-Server (server.py)
+🔹 Server (server.py)
 
 클라이언트 모델 파라미터 수신
 
 FedAvg 수행
 
-Global model 재배포
+글로벌 모델 재배포
 
-Client 1 (client1.py)
+🔹 Client 1 (client1.py)
 
-Glioma·Meningioma 중심의 Non-IID 데이터 포함
+Glioma·Meningioma 중심 Non-IID 데이터 포함
 
-로컬 모델 학습 후 서버에 가중치 전송
+로컬 학습 후 서버로 weight 전송
 
-Client 2 (client2.py)
+🔹 Client 2 (client2.py)
 
 Notumor·Pituitary 중심 Non-IID 데이터 포함
 
-로컬 학습 및 서버-클라이언트 라운드 반복 수행
+로컬 학습 후 반복적으로 서버와 통신
 
-📌 제공된 Jetson 시스템 구성도는 PDF page 5에 상세하게 설명되어 있습니다.
+Jetson 기반 시스템 구성도는 PDF page 5 참고.
 
 🧠 데이터셋 구성
 
 제공된 .pt 파일 기반 MRI 4-class 분류 데이터
 
-Label 0: Glioma
+Label	Class
+0	Glioma
+1	Meningioma
+2	Notumor
+3	Pituitary
 
-Label 1: Meningioma
+각 클라이언트는 서로 다른 비율의 데이터(non-IID)를 보유하며,
+이는 연합학습 시 정확도 및 안정성에 영향을 줍니다.
 
-Label 2: Notumor
-
-Label 3: Pituitary
-
-각 클라이언트는 서로 다른 비율의 라벨 데이터(non-IID)를 보유하며,
-이는 연합학습 과정에서 성능 차이와 안정성에 영향을 줍니다.
-
-📁 jetson-fedlearning
+📁 프로젝트 구조
+jetson-fedlearning
 │
 ├── server.py
 ├── client1.py
@@ -76,15 +72,15 @@ Label 3: Pituitary
 
 ⚙️ 모델 구조 (Network1 예시)
 
-CNN 기반 경량 모델
+CNN 기반 초경량 모델
 
-입력: 3×192×192
+입력: 3 × 192 × 192
 
-Conv → BatchNorm → ReLU 반복
+Conv → BatchNorm → ReLU 반복 블록
 
-AdaptiveAvgPool + Linear Layer
+AdaptiveAvgPool2d + Linear Layer
 
-Jetson에서도 학습·추론 가능한 초경량 아키텍처
+Jetson에서도 학습·추론 가능하도록 파라미터 수 최소화
 
 🔄 연합학습(FedAvg) 흐름
 Client1 ----→
@@ -93,39 +89,41 @@ Client1 ----→
               /
 Client2 ----→
 
-Clients는 로컬에서 모델 학습 수행
+수행 절차
 
-학습된 weight를 서버에 전송
+각 Client에서 로컬 학습 진행
 
-Server는 FedAvg 수행 후 글로벌 weight 계산
+Weight를 Server로 전송
 
-글로벌 모델을 다시 각 클라이언트에게 전송
+Server에서 FedAvg로 글로벌 weight 갱신
 
-지정된 round 수 또는 목표 정확도 도달 시 학습 종료
-평가 지표 (필수)
+갱신된 글로벌 모델을 클라이언트로 재배포
 
+목표 정확도 또는 설정된 global round 도달 시 종료
+
+📊 평가 지표
 항목	설명
-학습 성능 (Accuracy)	Test set 기반 정확도
-학습 소요 시간 (Training time)	Jetson에서의 실제 학습 시간
-모델 크기 (Model Size)	최종 모델의 파라미터 크기 (MB)
-추론 시간 (Inference Time)	Jetson에서의 1회 추론 시간
-
+Accuracy	Test set 기반 정확도
+Training Time	Jetson에서의 전체 학습 시간
+Model Size	최종 모델 파라미터 크기(MB)
+Inference Time	Jetson에서 1회 추론 시간
 🔧 실행 방법
-1. 서버 실행
+1) 서버 실행
 python server.py
 
-2. Client 1 실행
+2) Client 1 실행
 python client1.py
 
-3. Client 2 실행
+3) Client 2 실행
 python client2.py
 
-서버와 클라이언트는 Socket 기반으로 통신하며,
-각 라운드마다 글로벌 모델이 자동으로 교환됩니다.
+
+서버와 클라이언트는 Socket 기반 통신을 사용하며,
+각 라운드마다 글로벌 모델이 자동으로 갱신됩니다.
 
 🧪 결과 예시
 
-(예시 — 실제 실험 결과로 수정 가능)
+(※ 실제 실험 결과에 맞게 수정)
 
 Global round [4/5] Accuracy: 79.7%
 
