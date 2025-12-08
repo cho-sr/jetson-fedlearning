@@ -36,7 +36,7 @@ DATASET_NAME = "./dataset/test.pt"
 
 ####################################################### 수정 가능 #######################################################
 target_accuracy = 90.0  # 사용자 편의에 맞게 조정 (70~80 범위)
-global_round = 4   # 사용자 편의에 맞게 조정
+global_round = 5   # 사용자 편의에 맞게 조정
 batch_size = 64  # 사용자 편의에 맞게 조정
 num_samples = 1280   # 사용자 편의에 맞게 조정
 host = '127.0.0.1' # loop back으로 연합학습 수행 시 사용될 ip
@@ -58,53 +58,54 @@ class Network1(nn.Module):
     def __init__(self, num_classes=4):
         super(Network1, self).__init__()
         self.features = nn.Sequential(
-            nn.Conv2d(3, 20, 3, stride=2, padding=1, bias=False),
-            nn.BatchNorm2d(20),
+            nn.Conv2d(3, 16, 3, stride=2, padding=1, bias=False),
+            nn.BatchNorm2d(16),
             nn.ReLU6(inplace=True),
 
-            nn.Conv2d(20, 20, 3, padding=1, groups=20, bias=False),
-            nn.BatchNorm2d(20),
+            nn.Conv2d(16, 16, 3, padding=1, groups=16, bias=False),
+            nn.BatchNorm2d(16),
             nn.ReLU6(inplace=True),
-            nn.Conv2d(20, 30, 1, bias=False),
-            nn.BatchNorm2d(30),
+            nn.Conv2d(16, 32, 1, bias=False),
+            nn.BatchNorm2d(32),
             nn.ReLU6(inplace=True),
             nn.MaxPool2d(2),
 
-            nn.Conv2d(30, 30, 3, padding=1, groups=30, bias=False),
-            nn.BatchNorm2d(30),
+            nn.Conv2d(32, 32, 3, padding=1, groups=32, bias=False),
+            nn.BatchNorm2d(32),
             nn.ReLU6(inplace=True),
-            nn.Conv2d(30, 45, 1, bias=False),
-            nn.BatchNorm2d(45),
-            nn.ReLU6(inplace=True),
-            nn.MaxPool2d(2),
-
-            nn.Conv2d(45, 45, 3, padding=1, groups=45, bias=False),
-            nn.BatchNorm2d(45),
-            nn.ReLU6(inplace=True),
-            nn.Conv2d(45, 67, 1, bias=False),
-            nn.BatchNorm2d(67),
+            nn.Conv2d(32, 64, 1, bias=False),
+            nn.BatchNorm2d(64),
             nn.ReLU6(inplace=True),
             nn.MaxPool2d(2),
 
-            nn.Conv2d(67, 67, 3, padding=1, groups=67, bias=False),
-            nn.BatchNorm2d(67),
+            nn.Conv2d(64, 64, 3, padding=1, groups=64, bias=False),
+            nn.BatchNorm2d(64),
             nn.ReLU6(inplace=True),
-            nn.Conv2d(67, 100, 1, bias=False),
-            nn.BatchNorm2d(100),
+            nn.Conv2d(64, 128, 1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.ReLU6(inplace=True),
+            nn.MaxPool2d(2),
+
+            nn.Conv2d(128, 128, 3, padding=1, groups=128, bias=False),
+            nn.BatchNorm2d(128),
+            nn.ReLU6(inplace=True),
+            nn.Conv2d(128, 256, 1, bias=False),
+            nn.BatchNorm2d(256),
             nn.ReLU6(inplace=True),
 
             nn.AdaptiveAvgPool2d(1)
         )
         self.classifier = nn.Sequential(
-            nn.BatchNorm2d(100),
-            nn.Dropout(0.1),
-            nn.Conv2d(100, num_classes, kernel_size=1)
+            nn.BatchNorm2d(256),
+            nn.Dropout(0.2),
+            nn.Conv2d(256, num_classes,kernel_size=1)
         )
 
     def forward(self, x):
         x = self.features(x)
         x = self.classifier(x)
         x = x.view(x.size(0), -1)
+
         return x
 
 
