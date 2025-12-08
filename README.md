@@ -242,18 +242,12 @@ Label	        Client 1	     Client 2
 - **Optimizer, Loss, 정규화**
   - Optimizer: `Adam(lr=0.001, weight_decay=1e-4)`
     - `weight_decay`로 L2 규제를 걸어 과적합을 완화합니다.
-  - 손실함수: `CrossEntropyLoss(weight=class_weights)`
+  - 손실함수: `CrossEntropyLoss(weight=class_weights, label_smoothing=0.1)`
     - `class_weights = [3.1, 4.0, 2.5, 3.3]`와 같이 클래스별 다른 가중치를 부여해,
       클래스 불균형 환경에서 **소수 클래스의 영향력을 보정**했습니다.
+    - `label_smoothing=0.1`을 적용해 정답 클래스를 1.0이 아닌 0.9, 나머지 클래스를 0.1/(K-1)로 완만하게 분포시키면서  
+      **overfitting과 과도하게 확신하는 예측(over-confident prediction)** 을 줄이도록 설계했습니다.
 
-- **디바이스 선택 & 폴백 전략**
-  - 실행 시점에:
-    - `torch.backends.mps.is_available()` → `cuda.is_available()` → 그 외에는 `cpu`
-  - 순서대로 체크해 디바이스를 자동으로 선택하여,
-    - Apple Silicon(MPS),
-    - NVIDIA GPU(CUDA),
-    - 일반 CPU 환경
-    모두에서 코드 수정 없이 동작하도록 했습니다.
 
 - **재현성을 위한 시드 및 설정**
   - `SEED = 42`로 고정하고,
@@ -299,9 +293,10 @@ client1.py, client2.py 내 host_ip, port가 서버와 동일해야 함.
 
 <br>
 
-## 📊 결과(Jetson)
+## 📊 결과
+※ 아래 수치는 Jetson 디바이스를 클라이언트로 두고 서버와 실제 소켓 통신을 진행한 Federated Learning 실험 결과입니다.
 
-
+<br>
 - 학습 성능 : 80.01525553012968 %
 
 - 학습 소요 시간: 0 시간 0 분 54.24 초
